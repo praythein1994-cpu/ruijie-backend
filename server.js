@@ -12,33 +12,43 @@ const userSessions = new Map();
 // 1. LOGIN
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
+  console.log(`[LOGIN ATTEMPT] Email: ${email}`);
+
   if (!email || !password) {
     return res.status(400).json({ success: false, message: "Email and password are required" });
   }
 
   try {
+    // Ruijie Cloud Web Login Endpoint
     const ruijieAuthRes = await axios.post(`${RUIJIE_REGION_URL}/service/api/auth/user/login`, {
       username: email,
       password: password
     }, {
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+      },
       timeout: 10000
     });
 
-    if (ruijieAuthRes.data && ruijieAuthRes.data.code === 0) {
-      const userToken = ruijieAuthRes.data.data.token || ruijieAuthRes.data.data.access_token;
+    console.log("[RUIJIE RESPONSE]", ruijieAuthRes.data);
+
+    if (ruijieAuthRes.data && (ruijieAuthRes.data.code === 0 || ruijieAuthRes.data.code === '0')) {
+      const userToken = ruijieAuthRes.data.data?.token || ruijieAuthRes.data.data?.access_token;
       userSessions.set(email, { token: userToken, loginAt: Date.now() });
       return res.json({ success: true, message: "Login successful", userToken });
     } else {
       return res.status(401).json({
         success: false,
-        message: ruijieAuthRes.data.msg || "Invalid Ruijie credentials"
+        message: ruijieAuthRes.data?.msg || "Invalid Ruijie credentials"
       });
     }
   } catch (error) {
+    console.error("[LOGIN ERROR DETAILS]:", error.response?.status, error.response?.data || error.message);
     return res.status(500).json({
       success: false,
-      message: "Ruijie Gateway Connection Failed",
+      message: error.response?.data?.msg || "Ruijie Gateway Connection Failed",
+      status: error.response?.status,
       details: error.response?.data || error.message
     });
   }
@@ -129,7 +139,7 @@ app.post('/api/vouchers/delete', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
