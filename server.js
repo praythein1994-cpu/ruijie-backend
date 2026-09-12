@@ -8,30 +8,32 @@ app.use(express.json());
 
 const RUIJIE_BASE = "https://cloud-as.ruijienetworks.com";
 
-// 1. OAUTH TOKEN EXCHANGE / LOGIN
+// 1. RUIJIE OAUTH AUTHENTICATION ROUTE
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password, token } = req.body;
-  
-  // User input can be provided via Token directly or Password field
-  const clientToken = token || password || email;
-  console.log(`[AUTH REQUEST] Using Token/Key: ${clientToken?.substring(0, 10)}...`);
+  const { email, password, token, appid, secret } = req.body;
 
-  if (!clientToken) {
-    return res.status(400).json({ success: false, message: "Token or Secret is required" });
-  }
+  // Values from Client or Fallback to your registered Developer App credentials
+  const targetToken = token || "d63dss0a81e4415a889ac5b78fsc904a";
+  const targetAppId = appid || email || "open6dfe7fa50c37";
+  const targetSecret = secret || password || "5b6df901ce97435ab49b3a5714faf947";
+
+  console.log(`[LOGIN ATTEMPT] AppID: ${targetAppId}`);
 
   try {
-    // Ruijie Official OAuth2 Token Endpoint
     const response = await axios.post(
       `${RUIJIE_BASE}/service/api/oauth20/client/access_token`,
-      null,
       {
-        params: { token: clientToken },
-        timeout: 10000
+        appid: targetAppId,
+        secret: targetSecret
+      },
+      {
+        params: { token: targetToken },
+        headers: { "Content-Type": "application/json" },
+        timeout: 15000
       }
     );
 
-    console.log("[RUIJIE AUTH SUCCESS]:", response.data);
+    console.log("[RUIJIE RESPONSE]:", response.data);
 
     if (response.data && response.data.code === 0) {
       return res.json({
@@ -43,11 +45,11 @@ app.post('/api/auth/login', async (req, res) => {
     } else {
       return res.status(401).json({
         success: false,
-        message: response.data?.msg || "Failed to authenticate with Ruijie"
+        message: response.data?.msg || "Authentication failed"
       });
     }
   } catch (error) {
-    console.error("[AUTH ROUTE ERROR]:", error.response?.status, error.response?.data || error.message);
+    console.error("[AUTH ERROR]:", error.response?.status, error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       message: error.response?.data?.msg || "Ruijie Gateway Connection Failed",
@@ -97,7 +99,6 @@ app.get('/api/clients', async (req, res) => {
     const response = await axios.post(`${RUIJIE_BASE}/service/api/v1/client/list`, {
       project_id: projectId
     }, {
-      params: { access_token: accessToken },
       headers: { "Authorization": `Bearer ${accessToken}` }
     });
     res.json(response.data);
@@ -136,7 +137,6 @@ app.post('/api/vouchers/delete', async (req, res) => {
       project_id: projectId,
       code: code
     }, {
-      params: { access_token: accessToken },
       headers: { "Authorization": `Bearer ${accessToken}` }
     });
     res.json(response.data);
