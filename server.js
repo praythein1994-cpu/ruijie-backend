@@ -8,111 +8,140 @@ app.use(express.json());
 
 const RUIJIE_BASE = "https://cloud-as.ruijienetworks.com";
 
-// 1. DUAL-MODE LOGIN ROUTE
+// 1. OAUTH TOKEN EXCHANGE / LOGIN
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  console.log(`[LOGIN INCOMING] User: ${email}`);
+  const { email, password, token } = req.body;
+  
+  // User input can be provided via Token directly or Password field
+  const clientToken = token || password || email;
+  console.log(`[AUTH REQUEST] Using Token/Key: ${clientToken?.substring(0, 10)}...`);
 
-  if (!email || !password) {
-    return res.status(400).json({ success: false, message: "Email and password are required" });
+  if (!clientToken) {
+    return res.status(400).json({ success: false, message: "Token or Secret is required" });
   }
 
-  // A. If user enters Ruijie Cloud Open API Credentials (AppID / Secret)
   try {
-    const tokenRes = await axios.post(`${RUIJIE_BASE}/service/api/token/create`, {
-      appid: email,
-      secret: password
-    }, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 10000
-    });
+    // Ruijie Official OAuth2 Token Endpoint
+    const response = await axios.post(
+      `${RUIJIE_BASE}/service/api/oauth20/client/access_token`,
+      null,
+      {
+        params: { token: clientToken },
+        timeout: 10000
+      }
+    );
 
-    console.log("[OPEN API RESPONSE]", tokenRes.data);
-    if (tokenRes.data && (tokenRes.data.code === 0 || tokenRes.data.accessToken)) {
+    console.log("[RUIJIE AUTH SUCCESS]:", response.data);
+
+    if (response.data && response.data.code === 0) {
       return res.json({
         success: true,
-        userToken: tokenRes.data.accessToken || tokenRes.data.data?.accessToken,
-        type: 'open_api'
+        userToken: response.data.accessToken,
+        refreshToken: response.data.refreshToken,
+        message: "Logged in successfully"
+      });
+    } else {
+      return res.status(401).json({
+        success: false,
+        message: response.data?.msg || "Failed to authenticate with Ruijie"
       });
     }
-  } catch (apiErr) {
-    console.log("[OPEN API FAILED, FALLING BACK TO WEB AUTH]");
-  }
-
-  // B. Fallback to Ruijie Cloud Web SSO Authentication
-  try {
-    const webRes = await axios.post(`${RUIJIE_BASE}/sso/login`, new URLSearchParams({
-      username: email,
-      password: password,
-      service: `${RUIJIE_BASE}/service/api/token`
-    }), {
-      headers: { 
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-      },
-      maxRedirects: 5,
-      timeout: 10000
-    });
-
-    console.log("[WEB SSO STATUS]:", webRes.status);
-    const setCookie = webRes.headers['set-cookie'];
-    const sessionToken = setCookie ? setCookie.join('; ') : "active_session";
-
-    return res.json({
-      success: true,
-      userToken: sessionToken,
-      type: 'web_session'
-    });
-  } catch (webErr) {
-    console.error("[AUTH ERROR DETAILS]:", webErr.response?.status, webErr.response?.data || webErr.message);
-    return res.status(401).json({
+  } catch (error) {
+    console.error("[AUTH ROUTE ERROR]:", error.response?.status, error.response?.data || error.message);
+    return res.status(500).json({
       success: false,
-      message: "Invalid Ruijie Credentials or API Key"
+      message: error.response?.data?.msg || "Ruijie Gateway Connection Failed",
+      details: error.response?.data || error.message
     });
   }
 });
 
 // 2. PROJECT LIST
 app.get('/api/projects', async (req, res) => {
-  const token = req.headers['x-ruijie-token'];
+  const accessToken = req.headers['x-ruijie-token'];
+  if (!accessToken) return res.status(401).json({ error: "Missing x-ruijie-token" });
+
   try {
-    const response = await axios.get(`${RUIJIE_BASE}/service/api/group/single/tree`, {
-      params: { depth: 'BUILDING', access_token: token },
-      headers: { Cookie: token }
+    const response = await axios.post(`${RUIJIE_BASE}/service/api/v1/project/list`, {}, {
+      params: { access_token: accessToken },
+      headers: { "Authorization": `Bearer ${accessToken}` }
     });
-    res.json({ data: response.data?.data || [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 // 3. HARDWARE DEVICES
 app.get('/api/devices', async (req, res) => {
-  const token = req.headers['x-ruijie-token'];
+  const accessToken = req.headers['x-ruijie-token'];
   const { projectId } = req.query;
+
   try {
-    const response = await axios.get(`${RUIJIE_BASE}/service/api/device/list`, {
-      params: { access_token: token, groupId: projectId },
-      headers: { Cookie: token }
+    const response = await axios.get(`${RUIJIE_BASE}/service/api/maint/devices`, {
+      params: { access_token: accessToken, projectId },
+      headers: { "Authorization": `Bearer ${accessToken}` }
     });
-    res.json({ data: response.data?.data || [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
 // 4. CONNECTED CLIENTS
 app.get('/api/clients', async (req, res) => {
-  const token = req.headers['x-ruijie-token'];
+  const accessToken = req.headers['x-ruijie-token'];
   const { projectId } = req.query;
+
   try {
-    const response = await axios.get(`${RUIJIE_BASE}/service/api/client/list`, {
-      params: { access_token: token, groupId: projectId },
-      headers: { Cookie: token }
+    const response = await axios.post(`${RUIJIE_BASE}/service/api/v1/client/list`, {
+      project_id: projectId
+    }, {
+      params: { access_token: accessToken },
+      headers: { "Authorization": `Bearer ${accessToken}` }
     });
-    res.json({ data: response.data?.data || [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 5. VOUCHER GENERATE
+app.post('/api/vouchers/generate', async (req, res) => {
+  const accessToken = req.headers['x-ruijie-token'];
+  const { projectId, duration, quota } = req.body;
+
+  try {
+    const response = await axios.post(`${RUIJIE_BASE}/service/api/v1/auth/voucher/create`, {
+      project_id: projectId,
+      duration: duration || 60,
+      quota: quota || 1
+    }, {
+      params: { access_token: accessToken },
+      headers: { "Authorization": `Bearer ${accessToken}` }
+    });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 6. VOUCHER DELETE
+app.post('/api/vouchers/delete', async (req, res) => {
+  const accessToken = req.headers['x-ruijie-token'];
+  const { projectId, code } = req.body;
+
+  try {
+    const response = await axios.post(`${RUIJIE_BASE}/service/api/v1/auth/voucher/delete`, {
+      project_id: projectId,
+      code: code
+    }, {
+      params: { access_token: accessToken },
+      headers: { "Authorization": `Bearer ${accessToken}` }
+    });
+    res.json(response.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
