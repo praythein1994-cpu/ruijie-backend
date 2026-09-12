@@ -8,51 +8,56 @@ app.use(express.json());
 
 const RUIJIE_BASE = "https://cloud-as.ruijienetworks.com";
 
-// 1. RUIJIE OAUTH AUTHENTICATION ROUTE
+// Master Developer Credentials (Postman Verified)
+const MASTER_APP_ID = process.env.RUIJIE_APP_ID || "open6dfe7fa50c37";
+const MASTER_SECRET = process.env.RUIJIE_SECRET || "5b6df901ce97435ab49b3a5714faf947";
+const MASTER_TOKEN = process.env.RUIJIE_TOKEN || "d63dss0a81e4415a889ac5b78fsc904a";
+
+// 1. EMAIL & PASSWORD LOGIN ROUTE
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password, token, appid, secret } = req.body;
+  const { email, password } = req.body;
+  console.log(`[USER LOGIN] Email: ${email}`);
 
-  // Values from Client or Fallback to your registered Developer App credentials
-  const targetToken = token || "d63dss0a81e4415a889ac5b78fsc904a";
-  const targetAppId = appid || email || "open6dfe7fa50c37";
-  const targetSecret = secret || password || "5b6df901ce97435ab49b3a5714faf947";
-
-  console.log(`[LOGIN ATTEMPT] AppID: ${targetAppId}`);
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Email and password are required" });
+  }
 
   try {
+    // Authenticate and fetch Cloud Access Token using Master Developer App
     const response = await axios.post(
       `${RUIJIE_BASE}/service/api/oauth20/client/access_token`,
       {
-        appid: targetAppId,
-        secret: targetSecret
+        appid: MASTER_APP_ID,
+        secret: MASTER_SECRET
       },
       {
-        params: { token: targetToken },
+        params: { token: MASTER_TOKEN },
         headers: { "Content-Type": "application/json" },
         timeout: 15000
       }
     );
 
-    console.log("[RUIJIE RESPONSE]:", response.data);
+    console.log("[RUIJIE TOKEN FETCHED]:", response.data?.code === 0 ? "SUCCESS" : response.data);
 
     if (response.data && response.data.code === 0) {
       return res.json({
         success: true,
         userToken: response.data.accessToken,
         refreshToken: response.data.refreshToken,
-        message: "Logged in successfully"
+        userEmail: email,
+        message: "Login successful"
       });
     } else {
       return res.status(401).json({
         success: false,
-        message: response.data?.msg || "Authentication failed"
+        message: response.data?.msg || "Failed to generate Ruijie session"
       });
     }
   } catch (error) {
-    console.error("[AUTH ERROR]:", error.response?.status, error.response?.data || error.message);
+    console.error("[LOGIN ERROR]:", error.response?.status, error.response?.data || error.message);
     return res.status(500).json({
       success: false,
-      message: error.response?.data?.msg || "Ruijie Gateway Connection Failed",
+      message: "Ruijie Gateway Connection Failed",
       details: error.response?.data || error.message
     });
   }
@@ -69,8 +74,8 @@ app.get('/api/projects', async (req, res) => {
       headers: { "Authorization": `Bearer ${accessToken}` }
     });
     res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -85,8 +90,8 @@ app.get('/api/devices', async (req, res) => {
       headers: { "Authorization": `Bearer ${accessToken}` }
     });
     res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -102,8 +107,8 @@ app.get('/api/clients', async (req, res) => {
       headers: { "Authorization": `Bearer ${accessToken}` }
     });
     res.json(response.data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
